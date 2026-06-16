@@ -1,0 +1,9 @@
+{
+  "url": "https://quotes.toscrape.com",
+  "selectors": {
+    "quote_container": ".quote",
+    "quote_text": ".text",
+    "quote_author": ".author"
+  },
+  "min_results": 1
+}
