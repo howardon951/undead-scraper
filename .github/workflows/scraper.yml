@@ -25,4 +25,4 @@ jobs:
         run: python scraper.py
 
       - name: Inspect data quality
-        run: python inspect.py
+        run: python quality_check.py
