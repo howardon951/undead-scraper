@@ -5,7 +5,7 @@ import sys
 
 import anthropic
 
-MAX_TURNS = 10
+MAX_TURNS = 15
 
 TOOLS = [
     {
@@ -51,7 +51,8 @@ def execute_tool(name: str, inputs: dict) -> str:
             inputs["command"], shell=True, capture_output=True, text=True
         )
         output = (result.stdout + result.stderr).strip()
-        print(f"  $ {inputs['command']}\n  → {output[:300]}")
+        print(f"  $ {inputs['command'][:80]}")
+        print(f"  → {output[:300]}")
         return output or "(no output)"
 
     if name == "read_file":
@@ -72,31 +73,36 @@ def execute_tool(name: str, inputs: dict) -> str:
     return f"ERROR: unknown tool {name}"
 
 
-def run_agent():
+def get_initial_error() -> str:
+    result = subprocess.run(["python", "scraper.py"], capture_output=True, text=True)
+    return (result.stdout + result.stderr).strip()
+
+
+def run_agent(initial_error: str):
     client = anthropic.Anthropic(api_key=os.environ["ANTHROPIC_API_KEY"])
 
-    system = """You are a self-healing scraper agent. Your job is to fix a broken Python scraper.
+    system = """You are a self-healing agent for a Python scraper running in GitHub Actions.
 
-You have three tools:
-- run_command: run shell commands (python, curl, etc.)
-- read_file: read files in the repo
-- write_file: write files in the repo
+MANDATORY FIRST STEPS — always do this before anything else:
+1. Call read_file("skills/index.md") to see the available skills
+2. Match the error prefix in the error message to the correct skill
+3. Call read_file("skills/<chosen-skill>.md") to get detailed instructions
+4. Follow that skill's procedure exactly to diagnose and fix the issue
 
-Strategy:
-1. Run `python scraper.py` to see the error
-2. Read config.json and scraper.py to understand the structure
-3. Fetch the target URL HTML to find correct CSS selectors
-4. Fix config.json with the correct selectors
-5. Run `python scraper.py` again to verify — must print SUCCESS
-6. If verification fails, try different selectors and repeat
-7. Only stop when the scraper runs successfully
-
-Only modify config.json. Do not touch scraper.py or other files."""
+Rules:
+- Only modify config.json. Never modify scraper.py or other files.
+- Always verify your fix by running python scraper.py before finishing.
+- The fix is complete only when scraper.py exits 0 and prints SUCCESS."""
 
     messages = [
         {
             "role": "user",
-            "content": "The scraper GitHub Actions workflow just failed. Please diagnose and fix it.",
+            "content": (
+                f"The scraper GitHub Actions workflow just failed.\n\n"
+                f"Initial error output:\n```\n{initial_error}\n```\n\n"
+                f"Please read skills/index.md first, select the right skill, "
+                f"then diagnose and fix the issue."
+            ),
         }
     ]
 
@@ -113,17 +119,14 @@ Only modify config.json. Do not touch scraper.py or other files."""
             messages=messages,
         )
 
-        # Collect any text Claude outputs
         for block in response.content:
-            if hasattr(block, "text"):
+            if hasattr(block, "text") and block.text.strip():
                 print(f"Claude: {block.text}")
 
-        # If Claude is done (no more tool calls)
         if response.stop_reason == "end_turn":
             print("\n=== Agent finished ===")
             break
 
-        # Execute tool calls and collect results
         tool_results = []
         for block in response.content:
             if block.type == "tool_use":
@@ -137,15 +140,13 @@ Only modify config.json. Do not touch scraper.py or other files."""
                     }
                 )
 
-        # Append Claude's turn + tool results to conversation
         messages.append({"role": "assistant", "content": response.content})
         messages.append({"role": "user", "content": tool_results})
 
     else:
-        print(f"ERROR: hit max turns ({MAX_TURNS}) without finishing", file=sys.stderr)
+        print(f"ERROR: hit max turns ({MAX_TURNS})", file=sys.stderr)
         sys.exit(1)
 
-    # Final check: scraper must pass
     print("\n=== Final verification ===")
     result = subprocess.run(["python", "scraper.py"], capture_output=True, text=True)
     print(result.stdout)
@@ -157,4 +158,13 @@ Only modify config.json. Do not touch scraper.py or other files."""
 
 
 if __name__ == "__main__":
-    run_agent()
+    print("=== Pre-run: capturing initial error ===")
+    initial_error = get_initial_error()
+    print(initial_error)
+
+    if "SUCCESS" in initial_error:
+        print("Scraper already passing — nothing to fix.")
+        sys.exit(0)
+
+    print()
+    run_agent(initial_error)

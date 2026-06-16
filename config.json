@@ -1,9 +1,11 @@
 {
   "url": "https://quotes.toscrape.com",
+  "timeout": 15,
   "selectors": {
     "quote_container": ".quote",
     "quote_text": ".text",
     "quote_author": ".author"
   },
-  "min_results": 1
+  "min_results": 1,
+  "required_fields": ["text", "author"]
 }
