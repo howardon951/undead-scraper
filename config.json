@@ -1,5 +1,5 @@
 {
-  "url": "https://quotes.toscrape.com",
+  "url": "https://quotes.toscrape.com/this-page-does-not-exist/",
   "timeout": 15,
   "selectors": {
     "quote_container": ".quote",
