@@ -7,6 +7,7 @@ on:
 
 permissions:
   contents: write
+  id-token: write
 
 jobs:
   heal:
@@ -35,8 +36,7 @@ jobs:
         uses: anthropics/claude-code-action@v1
         with:
           anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
-          model: claude-sonnet-4-6
-          max_turns: "12"
+          claude_args: "--model claude-sonnet-4-6 --max-turns 12"
           prompt: |
             The GitHub Actions scraper workflow just failed.
             Diagnose, fix, verify, and push the fix to main.
