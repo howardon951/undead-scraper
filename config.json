@@ -1,9 +1,9 @@
 {
   "url": "https://quotes.toscrape.com",
   "selectors": {
-    "quote_container": ".quote",
-    "quote_text": ".text",
-    "quote_author": ".author"
+    "quote_container": ".wrong-item",
+    "quote_text": ".wrong-text",
+    "quote_author": ".wrong-author"
   },
   "min_results": 1
 }
