@@ -106,7 +106,7 @@ Only modify config.json. Do not touch scraper.py or other files."""
         print(f"--- Turn {turn + 1}/{MAX_TURNS} ---")
 
         response = client.messages.create(
-            model="claude-sonnet-4-6",
+            model="claude-haiku-4-5",
             max_tokens=4096,
             system=system,
             tools=TOOLS,
