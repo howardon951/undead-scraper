@@ -1,25 +1,37 @@
 # Healing Agent Skill Index
 
-You are a self-healing agent. Before diagnosing any issue, read this index
-and select the most appropriate skill based on the error message.
+You are a self-healing agent. Before doing anything, read this index and
+reason about which skill best matches the failure.
 
 ## How to select a skill
 
-Match the error prefix in the error output:
+Do NOT rely on error message prefixes alone. Read the error, think about
+the root cause, and pick the skill that matches the nature of the problem.
 
-| Error prefix | Skill file | Description |
-|---|---|---|
-| `CSS_SELECTOR_ERROR` | `skills/css-selector-fix.md` | CSS selectors in config.json don't match the target site's HTML |
-| `HTTP_ERROR` | `skills/url-fix.md` | Target URL returns a non-200 HTTP status code |
-| `TIMEOUT_ERROR` | `skills/timeout-fix.md` | Request times out — timeout value is too low or site is slow |
-| `SCHEMA_ERROR` | `skills/data-schema-fix.md` | Scraped data is missing fields listed in required_fields |
+### skills/css-selector-fix.md
+**Use when**: The page loaded successfully (HTTP 200) but no elements were
+found matching the CSS selectors. The scraper fetched the HTML but could not
+locate the expected content within it.
+Signs: "matched 0 elements", "found 0", selector returns empty list.
 
-## What to do
+### skills/url-fix.md
+**Use when**: The HTTP request itself failed or returned a non-200 status.
+The problem is with the target URL, not with parsing.
+Signs: 404, 403, 500, "page not found", "not OK", HTTP status errors.
 
-1. Identify the error prefix from the error message
-2. Read the corresponding skill file using read_file
-3. Follow the skill's diagnostic and repair procedure exactly
-4. Only modify config.json — never modify scraper.py
+### skills/timeout-fix.md
+**Use when**: The connection or read operation timed out before receiving
+a response. The server may be slow or the timeout value is too low.
+Signs: "timed out", "ConnectTimeout", "ReadTimeout", "connection failed".
 
-If the error does not match any prefix, read all skill files and use
-your best judgment.
+### skills/data-schema-fix.md
+**Use when**: The page loaded and content was found, but the scraped results
+are missing fields that config.json declares as required. The data structure
+does not match what the configuration expects.
+Signs: "required field", "missing", "empty in N/N results".
+
+## If no skill matches
+
+If the error does not clearly match any skill above, read all four skill
+files and apply your best judgment. The goal is always to fix config.json
+so that python scraper.py exits 0.

@@ -1,57 +1,73 @@
 # Skill: CSS Selector Fix
 
-## Trigger
-Error prefix: `CSS_SELECTOR_ERROR`
-
-Example:
-```
-CSS_SELECTOR_ERROR: selector '.broken-container' matched 0 elements, expected >= 1
-```
+## When to use this skill
+The page loads with HTTP 200, but the CSS selectors in config.json do not
+match any elements in the HTML. The scraper finds 0 results even though
+the site is reachable.
 
 ## Background
-The scraper uses CSS selectors stored in config.json under the "selectors" key.
-The target site is https://quotes.toscrape.com.
-
-The three selectors needed are:
-- `quote_container`: outer div wrapping each individual quote
-- `quote_text`: element containing the quote text
+The scraper uses three CSS selectors from config.json:
+- `quote_container`: outer element wrapping each item
+- `quote_text`: element containing the main text
 - `quote_author`: element containing the author name
+
+All three must match elements that actually exist in the page HTML.
 
 ## Diagnostic procedure
 
-1. Run `python scraper.py` to confirm the exact selector that failed.
+1. Run `python scraper.py` to confirm the exact failing selector.
 
-2. Fetch the live HTML and inspect the structure:
+2. Fetch the live page and inspect the structure around quotes:
 ```
 python3 -c "
-import requests
+import requests, json
 from bs4 import BeautifulSoup
-r = requests.get('https://quotes.toscrape.com', timeout=15)
+cfg = json.load(open('config.json'))
+r = requests.get(cfg['url'], timeout=15)
 soup = BeautifulSoup(r.text, 'html.parser')
-# Print the first quote block to see structure
-blocks = soup.find_all('div')[5:15]
-for b in blocks:
-    print(b.prettify()[:500])
-    print('---')
+# Print a sample of the body to find the real structure
+print(r.text[2000:6000])
 "
 ```
 
-3. Identify the correct class names from the HTML output.
+3. From the HTML output, identify:
+   - Which element wraps each quote block (look for repeated patterns)
+   - Which child element holds the quote text
+   - Which child element holds the author name
+
+4. Confirm your selectors actually work before writing:
+```
+python3 -c "
+import requests, json
+from bs4 import BeautifulSoup
+cfg = json.load(open('config.json'))
+r = requests.get(cfg['url'], timeout=15)
+soup = BeautifulSoup(r.text, 'html.parser')
+# Test your candidate selector here
+items = soup.select('YOUR_SELECTOR_HERE')
+print(f'Found {len(items)} items')
+if items:
+    print(items[0].prettify()[:400])
+"
+```
 
 ## Repair procedure
 
-Update ONLY the "selectors" object in config.json with the correct values.
-Do not change any other field.
+Update ONLY the `selectors` object in config.json with selectors confirmed
+to return results in step 4.
 
 ## Verification
 
-Run `python scraper.py` — must output `SUCCESS: scraped N quotes` and exit 0.
+Run `python scraper.py` — must print `SUCCESS: scraped N quotes` and exit 0.
 
-## Known good selectors for quotes.toscrape.com
-```json
-{
-  "quote_container": ".quote",
-  "quote_text": ".text",
-  "quote_author": ".author"
-}
-```
+## If fix fails
+
+If verification still fails after updating selectors:
+1. Your selectors may be partially wrong — re-examine the HTML more carefully.
+   Print a larger range: `r.text[0:8000]` to see more context.
+2. Test each selector independently before combining all three.
+3. The container selector is the most important — get that right first,
+   then find text and author within it.
+4. Try attribute selectors or tag-based selectors if class names are not clear.
+5. If `len(items) > 0` in step 4 but scraper still fails, check that
+   `quote_text` and `quote_author` exist as children of `quote_container`.
