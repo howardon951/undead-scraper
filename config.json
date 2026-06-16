@@ -1,6 +1,6 @@
 {
   "url": "https://quotes.toscrape.com",
-  "timeout": 15,
+  "timeout": 0.001,
   "selectors": {
     "quote_container": ".quote",
     "quote_text": ".text",
