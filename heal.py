@@ -74,31 +74,53 @@ def execute_tool(name: str, inputs: dict) -> str:
 
 
 def get_initial_context() -> dict:
-    """Run scraper + inspector + recon and collect all available context."""
-    scraper_result = subprocess.run(["python", "scraper.py"], capture_output=True, text=True)
-    scraper_output = (scraper_result.stdout + scraper_result.stderr).strip()
+    """Collect error context. Uses pre-loaded artifacts from scrape job when available."""
+    artifacts_loaded = os.path.exists("output.json")
 
-    inspect_result = subprocess.run(["python", "quality_check.py"], capture_output=True, text=True)
-    inspect_output = (inspect_result.stdout + inspect_result.stderr).strip()
-
-    inspect_report = ""
-    try:
-        inspect_report = open("inspect_report.txt").read()
-    except FileNotFoundError:
-        pass
-
-    output_sample = ""
-    try:
+    if artifacts_loaded:
+        # Scraper succeeded but quality check failed — artifacts carry the evidence.
+        # Skip re-running the (potentially slow) scraper.
+        print("=== Artifacts loaded from scrape job — skipping re-run ===")
         data = json.load(open("output.json"))
         output_sample = json.dumps({
             "result_count": data["result_count"],
             "field_stats": data["field_stats"],
             "sample": data["results"][:2],
         }, indent=2)
-    except FileNotFoundError:
-        pass
+        inspect_report = open("inspect_report.txt").read() if os.path.exists("inspect_report.txt") else ""
+        scraper_output = "Scraper completed successfully in scrape job — see inspect report and data sample"
+        inspect_output = inspect_report
+        crashed = False
+        drift_detected = bool(inspect_report)
+    else:
+        # No artifacts — scraper crashed before writing output.json. Re-run to reproduce.
+        print("=== No artifacts found — re-running scraper to reproduce error ===")
+        scraper_result = subprocess.run(["python", "scraper.py"], capture_output=True, text=True)
+        scraper_output = (scraper_result.stdout + scraper_result.stderr).strip()
 
-    # Always run recon — gives agent a ground-truth snapshot of current reality
+        inspect_result = subprocess.run(["python", "quality_check.py"], capture_output=True, text=True)
+        inspect_output = (inspect_result.stdout + inspect_result.stderr).strip()
+
+        inspect_report = ""
+        try:
+            inspect_report = open("inspect_report.txt").read()
+        except FileNotFoundError:
+            pass
+
+        output_sample = ""
+        try:
+            data = json.load(open("output.json"))
+            output_sample = json.dumps({
+                "result_count": data["result_count"],
+                "field_stats": data["field_stats"],
+                "sample": data["results"][:2],
+            }, indent=2)
+        except FileNotFoundError:
+            pass
+
+        crashed = scraper_result.returncode != 0
+        drift_detected = inspect_result.returncode != 0
+
     print("=== Running recon ===")
     recon_result = subprocess.run(["python", "recon.py"], capture_output=True, text=True)
     recon_report = recon_result.stdout.strip()
@@ -110,8 +132,9 @@ def get_initial_context() -> dict:
         "inspect_report": inspect_report,
         "output_sample": output_sample,
         "recon_report": recon_report,
-        "crashed": scraper_result.returncode != 0,
-        "drift_detected": inspect_result.returncode != 0,
+        "crashed": crashed,
+        "drift_detected": drift_detected,
+        "artifacts_loaded": artifacts_loaded,
     }
 
 

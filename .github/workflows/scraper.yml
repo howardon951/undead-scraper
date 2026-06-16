@@ -24,5 +24,61 @@ jobs:
       - name: Run scraper
         run: python scraper.py
 
-      - name: Inspect data quality
+      - name: Check data quality
         run: python quality_check.py
+
+      - name: Upload scraper artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: scraper-artifacts
+          path: |
+            output.json
+            inspect_report.txt
+          if-no-files-found: ignore
+          retention-days: 3
+
+  heal:
+    needs: scrape
+    runs-on: ubuntu-latest
+    if: failure()
+    permissions:
+      contents: write
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          fetch-depth: 0
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Download scraper artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: scraper-artifacts
+        continue-on-error: true
+
+      - name: Configure git identity
+        run: |
+          git config user.name  "Claude Self-Healer"
+          git config user.email "claude-self-healer@users.noreply.github.com"
+
+      - name: Run heal script
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+        run: python heal.py
+
+      - name: Commit and push fix
+        run: |
+          git add config.json output.json 2>/dev/null || true
+          git diff --cached --exit-code && echo "No changes to commit" || (
+            MSG=$(cat .commit_msg 2>/dev/null || echo "fix(scraper): auto-repair [skip ci]")
+            git commit -m "$MSG" &&
+            git push
+          )
