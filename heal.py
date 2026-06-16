@@ -74,27 +74,27 @@ def execute_tool(name: str, inputs: dict) -> str:
 
 
 def get_initial_context() -> dict:
-    """Collect error context. Uses pre-loaded artifacts from scrape job when available."""
-    artifacts_loaded = os.path.exists("output.json")
+    """Collect error context. Uses pre-loaded artifacts from scrape job when available.
+
+    Artifact detection uses inspect_report.txt (not output.json) because output.json
+    may exist in the git checkout from a previous heal commit, making it an unreliable
+    indicator. inspect_report.txt is gitignored so it only exists when downloaded from
+    a scrape job artifact or just written by a local quality_check.py run.
+    """
+    artifacts_loaded = os.path.exists("inspect_report.txt")
 
     if artifacts_loaded:
         # Scraper succeeded but quality check failed — artifacts carry the evidence.
         # Skip re-running the (potentially slow) scraper.
         print("=== Artifacts loaded from scrape job — skipping re-run ===")
-        data = json.load(open("output.json"))
-        output_sample = json.dumps({
-            "result_count": data["result_count"],
-            "field_stats": data["field_stats"],
-            "sample": data["results"][:2],
-        }, indent=2)
-        inspect_report = open("inspect_report.txt").read() if os.path.exists("inspect_report.txt") else ""
+        inspect_report = open("inspect_report.txt").read()
         scraper_output = "Scraper completed successfully in scrape job — see inspect report and data sample"
         inspect_output = inspect_report
         crashed = False
-        drift_detected = bool(inspect_report)
+        drift_detected = True
     else:
-        # No artifacts — scraper crashed before writing output.json. Re-run to reproduce.
-        print("=== No artifacts found — re-running scraper to reproduce error ===")
+        # No quality-failure artifact — scraper likely crashed. Re-run to reproduce error.
+        print("=== No artifacts — re-running scraper to reproduce error ===")
         scraper_result = subprocess.run(["python", "scraper.py"], capture_output=True, text=True)
         scraper_output = (scraper_result.stdout + scraper_result.stderr).strip()
 
@@ -107,19 +107,20 @@ def get_initial_context() -> dict:
         except FileNotFoundError:
             pass
 
-        output_sample = ""
-        try:
-            data = json.load(open("output.json"))
-            output_sample = json.dumps({
-                "result_count": data["result_count"],
-                "field_stats": data["field_stats"],
-                "sample": data["results"][:2],
-            }, indent=2)
-        except FileNotFoundError:
-            pass
-
         crashed = scraper_result.returncode != 0
         drift_detected = inspect_result.returncode != 0
+
+    # output.json: use if available (from artifact download or previous git commit)
+    output_sample = ""
+    try:
+        data = json.load(open("output.json"))
+        output_sample = json.dumps({
+            "result_count": data["result_count"],
+            "field_stats": data["field_stats"],
+            "sample": data["results"][:2],
+        }, indent=2)
+    except FileNotFoundError:
+        pass
 
     print("=== Running recon ===")
     recon_result = subprocess.run(["python", "recon.py"], capture_output=True, text=True)
