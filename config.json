@@ -7,5 +7,5 @@
     "quote_author": ".author"
   },
   "min_results": 1,
-  "required_fields": ["text", "author", "link", "tags"]
+  "required_fields": ["text", "author"]
 }
