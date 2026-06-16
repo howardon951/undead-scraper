@@ -7,7 +7,6 @@ on:
 
 permissions:
   contents: write
-  id-token: write
 
 jobs:
   heal:
@@ -32,49 +31,15 @@ jobs:
           git config user.name  "Claude Self-Healer"
           git config user.email "claude-self-healer@users.noreply.github.com"
 
-      - name: Run Claude to diagnose and fix
-        uses: anthropics/claude-code-action@v1
-        with:
-          anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
-          claude_args: "--model claude-sonnet-4-6 --max-turns 12"
-          prompt: |
-            The GitHub Actions scraper workflow just failed.
-            Diagnose, fix, verify, and push the fix to main.
+      - name: Run heal script
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+        run: python heal.py
 
-            STEP 1 — Read config.json and scraper.py in full.
-
-            STEP 2 — Run `python scraper.py` and read the error message.
-            It will tell you which selector returned 0 results.
-
-            STEP 3 — Inspect live HTML to find correct selectors:
-              python3 - <<'EOF'
-              import json, requests
-              from bs4 import BeautifulSoup
-              with open("config.json") as f:
-                  cfg = json.load(f)
-              r = requests.get(cfg["url"], timeout=15)
-              soup = BeautifulSoup(r.text, "html.parser")
-              print(r.text[:4000])
-              EOF
-
-            Identify correct CSS classes for:
-              - outer container wrapping each quote
-              - element with quote text
-              - element with author name
-
-            STEP 4 — Fix ONLY the "selectors" object in config.json.
-            Do NOT change "url" or "min_results".
-
-            STEP 5 — Run `python scraper.py` again.
-            Must print "SUCCESS: scraped N quotes" and exit 0.
-            If it still fails, re-examine the HTML and fix again.
-
-            STEP 6 — Commit and push:
-              git add config.json
-              git commit -m "fix(scraper): auto-repair CSS selectors [skip ci]"
-              git push
-
-            Rules:
-            - Do NOT open a pull request. Commit directly to main.
-            - Do NOT modify any file except config.json.
-            - Do NOT proceed to STEP 6 unless STEP 5 passes.
+      - name: Commit and push fix
+        run: |
+          git add config.json
+          git diff --cached --exit-code && echo "No changes to commit" || (
+            git commit -m "fix(scraper): auto-repair CSS selectors [skip ci]" &&
+            git push
+          )
