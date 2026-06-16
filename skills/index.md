@@ -30,8 +30,14 @@ are missing fields that config.json declares as required. The data structure
 does not match what the configuration expects.
 Signs: "required field", "missing", "empty in N/N results".
 
+### skills/schema-evolution.md
+**Use when**: The scraper ran and returned data, but the data quality inspector
+detected drift — fields have low fill rates, required fields are missing, or
+result counts dropped. The real world changed; update the schema to match it.
+Signs: "DATA_QUALITY_ERROR", "fill rate", "DRIFT", inspect.py exited non-zero.
+
 ## If no skill matches
 
-If the error does not clearly match any skill above, read all four skill
+If the error does not clearly match any skill above, read all five skill
 files and apply your best judgment. The goal is always to fix config.json
-so that python scraper.py exits 0.
+so that BOTH python scraper.py AND python inspect.py exit 0.

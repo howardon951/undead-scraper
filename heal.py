@@ -73,45 +73,98 @@ def execute_tool(name: str, inputs: dict) -> str:
     return f"ERROR: unknown tool {name}"
 
 
-def get_initial_error() -> str:
-    result = subprocess.run(["python", "scraper.py"], capture_output=True, text=True)
-    return (result.stdout + result.stderr).strip()
+def get_initial_context() -> dict:
+    """Run scraper + inspector and collect all available context."""
+    scraper_result = subprocess.run(["python", "scraper.py"], capture_output=True, text=True)
+    scraper_output = (scraper_result.stdout + scraper_result.stderr).strip()
+
+    inspect_result = subprocess.run(["python", "inspect.py"], capture_output=True, text=True)
+    inspect_output = (inspect_result.stdout + inspect_result.stderr).strip()
+
+    inspect_report = ""
+    try:
+        inspect_report = open("inspect_report.txt").read()
+    except FileNotFoundError:
+        pass
+
+    output_sample = ""
+    try:
+        data = json.load(open("output.json"))
+        output_sample = json.dumps({
+            "result_count": data["result_count"],
+            "field_stats": data["field_stats"],
+            "sample": data["results"][:2],
+        }, indent=2)
+    except FileNotFoundError:
+        pass
+
+    return {
+        "scraper_output": scraper_output,
+        "inspect_output": inspect_output,
+        "inspect_report": inspect_report,
+        "output_sample": output_sample,
+        "crashed": scraper_result.returncode != 0,
+        "drift_detected": inspect_result.returncode != 0,
+    }
 
 
-def run_agent(initial_error: str):
+def build_initial_message(ctx: dict) -> str:
+    parts = ["The scraper GitHub Actions workflow just failed.\n"]
+
+    if ctx["crashed"]:
+        parts.append(f"**Scraper crashed:**\n```\n{ctx['scraper_output']}\n```\n")
+    else:
+        parts.append(f"**Scraper ran successfully but data quality check failed.**\n")
+        parts.append(f"Scraper output:\n```\n{ctx['scraper_output']}\n```\n")
+
+    if ctx["inspect_report"]:
+        parts.append(f"**Inspector report:**\n```\n{ctx['inspect_report']}\n```\n")
+    elif ctx["inspect_output"]:
+        parts.append(f"**Inspector output:**\n```\n{ctx['inspect_output']}\n```\n")
+
+    if ctx["output_sample"]:
+        parts.append(f"**Scraped data sample:**\n```json\n{ctx['output_sample']}\n```\n")
+
+    parts.append("Please read skills/index.md first, select the right skill, then diagnose and fix the issue.")
+    return "\n".join(parts)
+
+
+def run_agent(ctx: dict):
     client = anthropic.Anthropic(api_key=os.environ["ANTHROPIC_API_KEY"])
 
     system = """You are a self-healing agent for a Python scraper running in GitHub Actions.
+Your goal is data fidelity — the scraped output must accurately reflect what the real world contains.
+
+You handle two types of failures:
+1. CRASH: scraper.py exited non-zero (broken selector, wrong URL, timeout, schema error)
+2. DRIFT: scraper.py succeeded but inspect.py detected data quality issues
+   (low fill rate, fields disappearing, result count dropping)
+   This means the real world changed — the site's HTML structure evolved.
 
 MANDATORY FIRST STEPS — always do this before anything else:
 1. Call read_file("skills/index.md") to understand available skills
-2. Reason about the error and select the most appropriate skill
+2. Reason about the nature of the failure and select the most appropriate skill
 3. Call read_file("skills/<chosen-skill>.md") for detailed instructions
 4. Follow that skill's diagnostic and repair procedure
 
 Rules:
-- Only modify config.json. Never modify scraper.py or other files.
-- Always verify your fix by running python scraper.py before finishing.
-- The fix is complete only when scraper.py exits 0 and prints SUCCESS.
+- Only modify config.json. Never modify scraper.py, inspect.py, or other files.
+- For drift failures: your job is to update the schema to match current reality,
+  not to restore a previous state. The real world is the source of truth.
+- Verification must pass BOTH: python scraper.py (exit 0) AND python inspect.py (exit 0).
 
-FINAL STEP — after verification passes, write a commit message:
-  write_file(".commit_msg", "fix(<scope>): <what was wrong and how it was fixed> [skip ci]")
+FINAL STEP — after both verifications pass, write a descriptive commit message:
+  write_file(".commit_msg", "fix(<scope>): <what drifted and how schema was updated> [skip ci]")
   Examples:
-    fix(url): restore base URL after path was set to nonexistent page [skip ci]
-    fix(timeout): increase request timeout from 0.001s to 15s [skip ci]
-    fix(selectors): update CSS selectors to match current site HTML structure [skip ci]
-    fix(schema): remove nonexistent fields from required_fields validation [skip ci]
-  The message must accurately describe what actually changed, not use a generic description."""
+    fix(schema): update required_fields to match available site fields after HTML restructure [skip ci]
+    fix(selectors): update author selector from .author to .author-title after site redesign [skip ci]
+    fix(url): restore base URL — path /page/99 no longer exists [skip ci]
+  The message must describe what actually changed in the real world, not just what file was edited."""
 
     messages = [
         {
             "role": "user",
-            "content": (
-                f"The scraper GitHub Actions workflow just failed.\n\n"
-                f"Initial error output:\n```\n{initial_error}\n```\n\n"
-                f"Please read skills/index.md first, select the right skill, "
-                f"then diagnose and fix the issue."
-            ),
+            "content": build_initial_message(ctx),
         }
     ]
 
@@ -157,23 +210,31 @@ FINAL STEP — after verification passes, write a commit message:
         sys.exit(1)
 
     print("\n=== Final verification ===")
-    result = subprocess.run(["python", "scraper.py"], capture_output=True, text=True)
-    print(result.stdout)
-    if result.returncode != 0:
-        print(f"Scraper still failing:\n{result.stderr}", file=sys.stderr)
+    scraper = subprocess.run(["python", "scraper.py"], capture_output=True, text=True)
+    print(scraper.stdout)
+    if scraper.returncode != 0:
+        print(f"Scraper still failing:\n{scraper.stderr}", file=sys.stderr)
         sys.exit(1)
 
-    print("✓ Scraper passing — ready to commit")
+    inspector = subprocess.run(["python", "inspect.py"], capture_output=True, text=True)
+    print(inspector.stdout)
+    if inspector.returncode != 0:
+        print(f"Data quality still failing:\n{inspector.stderr}", file=sys.stderr)
+        sys.exit(1)
+
+    print("✓ Scraper and inspector both passing — ready to commit")
 
 
 if __name__ == "__main__":
-    print("=== Pre-run: capturing initial error ===")
-    initial_error = get_initial_error()
-    print(initial_error)
+    print("=== Pre-run: collecting context ===")
+    ctx = get_initial_context()
+    print(ctx["scraper_output"])
+    if ctx["inspect_output"]:
+        print(ctx["inspect_output"])
 
-    if "SUCCESS" in initial_error:
-        print("Scraper already passing — nothing to fix.")
+    if not ctx["crashed"] and not ctx["drift_detected"]:
+        print("Scraper and inspector both passing — nothing to fix.")
         sys.exit(0)
 
     print()
-    run_agent(initial_error)
+    run_agent(ctx)

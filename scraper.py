@@ -63,6 +63,22 @@ def scrape():
                 f"Available fields: {list(results[0].keys()) if results else []}"
             )
 
+    # Write output for inspector
+    field_names = list(results[0].keys()) if results else []
+    output = {
+        "result_count": len(results),
+        "results": results,
+        "field_stats": {
+            field: {
+                "fill_rate": round(sum(1 for r in results if r.get(field)) / len(results), 3),
+                "empty_count": sum(1 for r in results if not r.get(field)),
+            }
+            for field in field_names
+        },
+    }
+    with open("output.json", "w") as f:
+        json.dump(output, f, indent=2)
+
     print(f"SUCCESS: scraped {len(results)} quotes")
     for r in results[:3]:
         print(f"  - {r['author']}: {r['text'][:60]}...")

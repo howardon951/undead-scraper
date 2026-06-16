@@ -1,4 +1,5 @@
 .commit_msg
+inspect_report.txt
 __pycache__/
 *.pyc
 .env

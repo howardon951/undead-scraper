@@ -23,3 +23,6 @@ jobs:
 
       - name: Run scraper
         run: python scraper.py
+
+      - name: Inspect data quality
+        run: python inspect.py
